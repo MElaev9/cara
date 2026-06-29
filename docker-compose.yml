@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  karavan:
+    build: .
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - DB_PATH=/data/karavan.db
+    volumes:
+      - karavan_data:/data
+
+volumes:
+  karavan_data:

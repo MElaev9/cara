@@ -1,8 +1,6 @@
-import os
 import logging
-from flask import Flask, request, abort
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -10,119 +8,74 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ContextTypes,
+    ConversationHandler,
 )
 
-# Логирование
+from database import init_db
+from handlers import (
+    start,
+    handle_menu,
+    add_event_start,
+    receive_name,
+    receive_guests,
+    show_dishes,
+    handle_dish_toggle,
+    save_dishes,
+    confirm_event,
+    handle_confirm,
+    show_archive,
+    show_event_card,
+    cancel,
+    WAITING_NAME,
+    WAITING_GUESTS,
+    CHOOSING_DISHES,
+    CONFIRMING,
+)
+
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация
-TOKEN = os.environ.get("BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("BOT_TOKEN не задан в переменных окружения Render!")
 
-PORT = int(os.environ.get("PORT", 10000))
+def main() -> None:
+    token = os.environ.get("BOT_TOKEN")
+    if not token:
+        raise ValueError("BOT_TOKEN environment variable is not set")
 
-# Render даёт домен в переменной RENDER_EXTERNAL_HOSTNAME
-# Если её нет — fallback на localhost (для теста)
-HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
-WEBHOOK_PATH = f"/telegram-webhook"  # можно сделать длиннее/секретнее
-WEBHOOK_URL = f"https://{HOSTNAME}{WEBHOOK_PATH}"
+    init_db()
 
-app = Flask(__name__)
+    app = Application.builder().token(token).build()
 
-# Глобальное приложение python-telegram-bot
-application: Application = None
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [
-        [InlineKeyboardButton("Суп", callback_data="Суп")],
-        [InlineKeyboardButton("Пицца", callback_data="Пицца")],
-        [InlineKeyboardButton("Салат", callback_data="Салат")],
-        [InlineKeyboardButton("Десерт", callback_data="Десерт")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Добро пожаловать в Караван! Выберите блюдо:", reply_markup=reply_markup)
-
-
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    await query.message.reply_text(f"Вы выбрали: {query.data}\n\nСкоро приготовим! 🍲")
-
-
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Напишите /start чтобы увидеть меню.")
-
-
-def init_application():
-    global application
-    if application is not None:
-        return
-
-    application = (
-        Application.builder()
-        .token(TOKEN)
-        .build()
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_event_start, pattern="^add_event$")],
+        states={
+            WAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+            WAITING_GUESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_guests)],
+            CHOOSING_DISHES: [
+                CallbackQueryHandler(handle_dish_toggle, pattern="^dish_"),
+                CallbackQueryHandler(save_dishes, pattern="^save_dishes$"),
+            ],
+            CONFIRMING: [
+                CallbackQueryHandler(handle_confirm, pattern="^(confirm_save|cancel_event)$"),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("start", start),
+            CallbackQueryHandler(cancel, pattern="^cancel_event$"),
+        ],
     )
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)
+    app.add_handler(CallbackQueryHandler(show_archive, pattern="^archive$"))
+    app.add_handler(CallbackQueryHandler(show_event_card, pattern="^event_"))
+    app.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
 
-
-@app.route("/", methods=["GET"])
-def health_check():
-    return "Telegram бот на webhook работает"
-
-
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
-    if request.headers.get("content-type") == "application/json":
-        json_data = request.get_json(silent=True)
-        if json_data is None:
-            abort(400)
-
-        update = Update.de_json(json_data, application.bot)
-        if update:
-            # Кладём обновление в очередь (не блокируем поток)
-            application.update_queue.put_nowait(update)
-        return "OK", 200
-
-    abort(403)
-
-
-def set_webhook_once():
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    try:
-        loop.run_until_complete(
-            application.bot.set_webhook(
-                url=WEBHOOK_URL,
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES
-            )
-        )
-        logger.info(f"Webhook успешно установлен: {WEBHOOK_URL}")
-    except Exception as e:
-        logger.error(f"Ошибка при установке webhook: {e}")
-        raise
-    finally:
-        loop.close()
+    logger.info("Bot started")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    # Локальный запуск (python bot.py) — для теста
-    init_application()
-    set_webhook_once()  # только для локального теста с ngrok
-    app.run(host="0.0.0.0", port=PORT, debug=True)
-else:
-    # На Render (gunicorn запускает приложение)
-    init_application()
-    # set_webhook_once() НЕ вызываем здесь — делаем это один раз вручную после деплоя
+    main()

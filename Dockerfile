@@ -7,8 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV DB_PATH=/data/karavan.db
+ENV DB_PATH=/app/data/karavan.db
 
-VOLUME ["/data"]
+RUN mkdir -p /app/data
 
 CMD ["python", "bot.py"]

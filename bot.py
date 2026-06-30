@@ -14,14 +14,11 @@ from telegram.ext import (
 from database import init_db
 from handlers import (
     start,
-    handle_menu,
     add_event_start,
     receive_name,
     receive_guests,
-    show_dishes,
     handle_dish_toggle,
     save_dishes,
-    confirm_event,
     handle_confirm,
     show_archive,
     show_event_card,

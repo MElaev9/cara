@@ -10,6 +10,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
+
 from database import init_db
 from handlers import (
     start,
@@ -17,6 +18,7 @@ from handlers import (
     receive_name,
     receive_guests,
     handle_dish_toggle,
+    handle_category_info,
     save_dishes,
     handle_confirm,
     show_archive,
@@ -52,6 +54,7 @@ def main() -> None:
             CHOOSING_DISHES: [
                 CallbackQueryHandler(handle_dish_toggle, pattern="^dish_"),
                 CallbackQueryHandler(save_dishes, pattern="^save_dishes$"),
+                CallbackQueryHandler(handle_category_info, pattern="^cat_"),
             ],
             CONFIRMING: [
                 CallbackQueryHandler(handle_confirm, pattern="^(confirm_save|cancel_event)$"),

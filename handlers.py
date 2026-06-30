@@ -28,6 +28,14 @@ CATEGORY_ICONS = {
     "Десерты": "🍰",
 }
 
+CATEGORY_DESCRIPTIONS = {
+    "Салаты": "🥗 Салаты — расчёт идёт из нормы 1 порция на 3 гостей.",
+    "Горячее": "🍖 Горячее — основное блюдо мероприятия, 1 порция на каждого гостя.",
+    "Гарниры": "🥔 Гарниры — дополнение к горячему, 1 порция на каждого гостя.",
+    "Закуски": "🧀 Закуски — лёгкие блюда к столу, 1 порция на 4 гостей.",
+    "Десерты": "🍰 Десерты — сладкое к чаю, 1 порция на каждого гостя.",
+}
+
 EVENT_ICONS = ["🎉", "🎂", "🏢", "👶", "🎊", "🌟", "🥂", "🍽️"]
 
 
@@ -102,7 +110,7 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
         if category not in categories:
             continue
         icon = CATEGORY_ICONS.get(category, "🍴")
-        keyboard.append([InlineKeyboardButton(f"── {icon} {category} ──", callback_data="noop")])
+        keyboard.append([InlineKeyboardButton(f"── {icon} {category} ──", callback_data=f"cat_{category}")])
         row = []
         for dish in categories[category]:
             is_selected = dish["id"] in selected
@@ -129,6 +137,13 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
         await target.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
     else:
         await target.reply_text(text, reply_markup=kb, parse_mode="HTML")
+
+
+async def handle_category_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    category = query.data.replace("cat_", "", 1)
+    description = CATEGORY_DESCRIPTIONS.get(category, category)
+    await query.answer(text=description, show_alert=True)
 
 
 async def handle_dish_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):

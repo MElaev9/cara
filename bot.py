@@ -10,7 +10,6 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
-
 from database import init_db
 from handlers import (
     start,

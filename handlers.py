@@ -134,7 +134,7 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
     kb = InlineKeyboardMarkup(keyboard)
 
     if edit:
-        await target.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     else:
         await target.reply_text(text, reply_markup=kb, parse_mode="HTML")
 
@@ -159,7 +159,7 @@ async def handle_dish_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE)
         selected.append(dish_id)
 
     context.user_data["selected_dishes"] = selected
-    await _send_dish_catalog(query.message, context, edit=True)
+    await _send_dish_catalog(query, context, edit=True)
     return CHOOSING_DISHES
 
 
@@ -172,7 +172,7 @@ async def save_dishes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⚠️ Выберите хотя бы одно блюдо!", show_alert=True)
         return CHOOSING_DISHES
 
-    await _show_confirmation(query.message, context, edit=True)
+    await _show_confirmation(query, context, edit=True)
     return CONFIRMING
 
 
@@ -202,7 +202,7 @@ async def _show_confirmation(target, context, edit=False):
     ]
     kb = InlineKeyboardMarkup(keyboard)
     if edit:
-        await target.edit_message_text(text, reply_markup=kb, parse_mode="HTML")
+        await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     else:
         await target.reply_text(text, reply_markup=kb, parse_mode="HTML")
 

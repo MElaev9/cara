@@ -38,6 +38,22 @@ CATEGORY_DESCRIPTIONS = {
 
 EVENT_ICONS = ["🎉", "🎂", "🏢", "👶", "🎊", "🌟", "🥂", "🍽️"]
 
+# Белый список — только эти пользователи могут использовать бота
+ALLOWED_USERS = {470659949, 5934943041}
+
+
+def is_allowed(update: Update) -> bool:
+    user_id = update.effective_user.id if update.effective_user else None
+    return user_id in ALLOWED_USERS
+
+
+async def access_denied(update: Update):
+    text = "⛔ У вас нет доступа к этому боту."
+    if update.message:
+        await update.message.reply_text(text)
+    elif update.callback_query:
+        await update.callback_query.answer(text, show_alert=True)
+
 
 def _main_menu_keyboard():
     keyboard = [
@@ -48,6 +64,9 @@ def _main_menu_keyboard():
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        await access_denied(update)
+        return
     context.user_data.clear()
     text = "👋 Добро пожаловать в бот <b>«Караван»</b>!\n\nВыберите действие:"
     kb = _main_menu_keyboard()
@@ -63,6 +82,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────────────────────────
 
 async def add_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        await access_denied(update)
+        return ConversationHandler.END
     await update.callback_query.answer()
     context.user_data.clear()
     await update.callback_query.edit_message_text(
@@ -256,6 +278,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────────────────────────
 
 async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        await access_denied(update)
+        return
     query = update.callback_query
     await query.answer()
 

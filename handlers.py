@@ -11,6 +11,7 @@ from database import (
     get_event_by_id,
 )
 from calculator import calculate_ingredients, format_amount
+from sheets import export_event_to_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -348,9 +349,10 @@ async def show_event_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>🛒 Необходимые продукты (с запасом +7%):</b>\n{ing_lines}"
     )
 
-    kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("◀️ Назад к архиву", callback_data="archive")]]
-    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 Экспорт в Google Таблицу", callback_data=f"export_{event_id}")],
+        [InlineKeyboardButton("◀️ Назад к архиву", callback_data="archive")],
+    ])
 
     # Telegram message limit is 4096 chars; split if needed
     if len(header) <= 4096:
@@ -364,3 +366,47 @@ async def show_event_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(part1, parse_mode="HTML")
         part2 = f"<b>🛒 Необходимые продукты (с запасом +7%):</b>\n{ing_lines}"
         await query.message.reply_text(part2, parse_mode="HTML", reply_markup=kb)
+
+
+# ──────────────────────────────────────────────
+# EXPORT TO GOOGLE SHEETS
+# ──────────────────────────────────────────────
+
+async def export_to_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    event_id = int(query.data.split("_")[1])
+    event = get_event_by_id(event_id)
+    if not event:
+        await query.answer("⚠️ Мероприятие не найдено.", show_alert=True)
+        return
+
+    await query.message.reply_text("⏳ Экспортирую в Google Таблицу...")
+
+    dish_ids = json.loads(event["dish_ids"])
+    dish_names = []
+    for did in dish_ids:
+        d = get_dish_by_id(did)
+        if d:
+            dish_names.append(d["name"])
+
+    ingredients = calculate_ingredients(event["guests"], dish_ids)
+
+    try:
+        url = export_event_to_sheets(
+            event_name=event["name"],
+            guests=event["guests"],
+            dish_names=dish_names,
+            ingredients=ingredients,
+        )
+        await query.message.reply_text(
+            f"✅ Готово! Данные экспортированы.\n\n📊 <a href='{url}'>Открыть таблицу</a>",
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except Exception as e:
+        logger.error(f"Sheets export error: {e}")
+        await query.message.reply_text(
+            "❌ Ошибка при экспорте. Проверьте настройки Google API."
+        )

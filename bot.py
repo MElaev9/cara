@@ -23,6 +23,7 @@ from handlers import (
     handle_confirm,
     show_archive,
     show_event_card,
+    export_to_sheets,
     cancel,
     WAITING_NAME,
     WAITING_GUESTS,
@@ -70,6 +71,7 @@ def main() -> None:
     app.add_handler(conv_handler)
     app.add_handler(CallbackQueryHandler(show_archive, pattern="^archive$"))
     app.add_handler(CallbackQueryHandler(show_event_card, pattern="^event_"))
+    app.add_handler(CallbackQueryHandler(export_to_sheets, pattern="^export_"))
     app.add_handler(CallbackQueryHandler(start, pattern="^main_menu$"))
 
     logger.info("Bot started")

@@ -298,3 +298,11 @@ def get_event_by_id(event_id):
     row = c.fetchone()
     conn.close()
     return row
+
+
+def delete_event(event_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM events WHERE id = ?", (event_id,))
+    conn.commit()
+    conn.close()

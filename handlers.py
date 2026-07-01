@@ -9,13 +9,13 @@ from database import (
     save_event,
     get_all_events,
     get_event_by_id,
+    delete_event,
 )
 from calculator import calculate_ingredients, format_amount
-from sheets import export_event_to_sheets
+from sheets import export_event_to_sheets, delete_sheet_for_event
 
 logger = logging.getLogger(__name__)
 
-# Conversation states
 WAITING_NAME = 1
 WAITING_GUESTS = 2
 CHOOSING_DISHES = 3
@@ -39,7 +39,6 @@ CATEGORY_DESCRIPTIONS = {
 
 EVENT_ICONS = ["🎉", "🎂", "🏢", "👶", "🎊", "🌟", "🥂", "🍽️"]
 
-# Белый список — только эти пользователи могут использовать бота
 ALLOWED_USERS = {470659949, 5934943041}
 
 
@@ -57,11 +56,10 @@ async def access_denied(update: Update):
 
 
 def _main_menu_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("➕ Добавить событие", callback_data="add_event")],
-        [InlineKeyboardButton("📂 Архив событий", callback_data="archive")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕  Добавить событие", callback_data="add_event")],
+        [InlineKeyboardButton("📂  Архив событий", callback_data="archive")],
+    ])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,7 +67,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await access_denied(update)
         return
     context.user_data.clear()
-    text = "👋 Добро пожаловать в бот <b>«Караван»</b>!\n\nВыберите действие:"
+    text = (
+        "🫙 <b>Бот «Караван»</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Автоматический расчёт продуктов\n"
+        "для банкетов и мероприятий.\n\n"
+        "Выберите действие:"
+    )
     kb = _main_menu_keyboard()
     if update.message:
         await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
@@ -89,7 +93,11 @@ async def add_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     context.user_data.clear()
     await update.callback_query.edit_message_text(
-        "📝 <b>Новое мероприятие</b>\n\nВведите название мероприятия:",
+        "📝 <b>Новое мероприятие</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Шаг 1 из 3\n\n"
+        "Введите <b>название</b> мероприятия:\n\n"
+        "<i>Например: Свадьба Ивановых, Корпоратив, Юбилей</i>",
         parse_mode="HTML",
     )
     return WAITING_NAME
@@ -102,7 +110,12 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return WAITING_NAME
     context.user_data["event_name"] = name
     await update.message.reply_text(
-        f"✅ Название: <b>{name}</b>\n\nВведите количество гостей (целое число):",
+        f"📝 <b>Новое мероприятие</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Шаг 2 из 3\n\n"
+        f"✅ Название: <b>{name}</b>\n\n"
+        f"Введите <b>количество гостей</b>:\n\n"
+        f"<i>Например: 50, 120, 200</i>",
         parse_mode="HTML",
     )
     return WAITING_GUESTS
@@ -123,7 +136,6 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
     dishes = get_all_dishes()
     selected = set(context.user_data.get("selected_dishes", []))
 
-    # Group by category
     categories = defaultdict(list)
     for d in dishes:
         categories[d["category"]].append(d)
@@ -133,11 +145,13 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
         if category not in categories:
             continue
         icon = CATEGORY_ICONS.get(category, "🍴")
-        keyboard.append([InlineKeyboardButton(f"── {icon} {category} ──", callback_data=f"cat_{category}")])
+        keyboard.append([InlineKeyboardButton(
+            f"── {icon} {category} ──", callback_data=f"cat_{category}"
+        )])
         row = []
         for dish in categories[category]:
             is_selected = dish["id"] in selected
-            label = f"✅ {dish['name']}" if is_selected else dish["name"]
+            label = f"🟢 {dish['name']}" if is_selected else dish["name"]
             row.append(InlineKeyboardButton(label, callback_data=f"dish_{dish['id']}"))
             if len(row) == 2:
                 keyboard.append(row)
@@ -145,14 +159,17 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
         if row:
             keyboard.append(row)
 
-    keyboard.append([InlineKeyboardButton("✅ Сохранить выбор", callback_data="save_dishes")])
-
     count = len(selected)
+    save_label = f"✅  Сохранить выбор ({count})" if count > 0 else "✅  Сохранить выбор"
+    keyboard.append([InlineKeyboardButton(save_label, callback_data="save_dishes")])
+
     text = (
-        f"🍽️ <b>Выберите блюда</b>\n\n"
+        f"🍽️ <b>Выберите блюда</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Шаг 3 из 3\n\n"
         f"Выбрано блюд: <b>{count}</b>\n\n"
-        f"Нажмите на блюдо для выбора/отмены.\n"
-        f"После окончания нажмите «Сохранить выбор»."
+        f"🟢 — выбрано  |  нажмите снова — отмена\n"
+        f"Нажмите на категорию — узнайте норму подачи."
     )
     kb = InlineKeyboardMarkup(keyboard)
 
@@ -210,19 +227,18 @@ async def _show_confirmation(target, context, edit=False):
         if d:
             dish_names.append(d["name"])
 
-    dishes_text = "\n".join(f"• {n}" for n in dish_names)
+    dishes_text = "\n".join(f"  • {n}" for n in dish_names)
     text = (
-        f"📋 <b>Проверьте данные мероприятия</b>\n\n"
-        f"<b>Название</b>\n{name}\n\n"
-        f"<b>Количество гостей</b>\n{guests}\n\n"
-        f"<b>Выбранные блюда</b>\n{dishes_text}"
+        f"📋 <b>Проверьте данные</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🎉 <b>Мероприятие:</b> {name}\n"
+        f"👥 <b>Гостей:</b> {guests}\n\n"
+        f"🍽️ <b>Выбранные блюда ({len(dish_names)}):</b>\n{dishes_text}"
     )
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ Сохранить событие", callback_data="confirm_save"),
-            InlineKeyboardButton("❌ Отмена", callback_data="cancel_event"),
-        ]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("✅  Сохранить", callback_data="confirm_save"),
+        InlineKeyboardButton("❌  Отмена", callback_data="cancel_event"),
+    ]]
     kb = InlineKeyboardMarkup(keyboard)
     if edit:
         await target.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -244,12 +260,11 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "❌ Создание события отменено.",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]]
+                [[InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]]
             ),
         )
         return ConversationHandler.END
 
-    # Save
     name = context.user_data["event_name"]
     guests = context.user_data["guests"]
     dish_ids = context.user_data["selected_dishes"]
@@ -257,10 +272,13 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
     await query.edit_message_text(
-        f"🎉 Событие <b>«{name}»</b> успешно сохранено!\n\nТеперь оно доступно в архиве.",
+        f"🎉 <b>Событие сохранено!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>{name}</b> добавлено в архив.\n"
+        f"Откройте его чтобы увидеть список закупки.",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]]
+            [[InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]]
         ),
     )
     return ConversationHandler.END
@@ -270,7 +288,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("❌ Отменено.")
+        await update.callback_query.edit_message_text(
+            "❌ Отменено.",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]]
+            ),
+        )
     return ConversationHandler.END
 
 
@@ -291,7 +314,7 @@ async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📂 <b>Архив пуст</b>\n\nСоздайте первое мероприятие!",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]]
+                [[InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]]
             ),
         )
         return
@@ -299,13 +322,17 @@ async def show_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for i, ev in enumerate(events):
         icon = EVENT_ICONS[i % len(EVENT_ICONS)]
-        keyboard.append(
-            [InlineKeyboardButton(f"{icon} {ev['name']} ({ev['guests']} гостей)", callback_data=f"event_{ev['id']}")]
-        )
-    keyboard.append([InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")])
+        keyboard.append([InlineKeyboardButton(
+            f"{icon}  {ev['name']}  •  {ev['guests']} гостей",
+            callback_data=f"event_{ev['id']}"
+        )])
+    keyboard.append([InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")])
 
     await query.edit_message_text(
-        f"📂 <b>Архив мероприятий</b>\n\nВсего: {len(events)}",
+        f"📂 <b>Архив мероприятий</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Всего событий: <b>{len(events)}</b>\n\n"
+        f"Нажмите на мероприятие:",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -332,40 +359,102 @@ async def show_event_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if d:
             dish_names.append(d["name"])
 
-    # Calculate ingredients
     ingredients = calculate_ingredients(event["guests"], dish_ids)
 
-    dishes_text = "\n".join(f"• {n}" for n in dish_names)
+    dishes_text = "\n".join(f"  • {n}" for n in dish_names)
     ing_lines = "\n".join(
-        f"• {ing['name']} — {format_amount(ing['amount'], ing['unit'])}"
+        f"  • {ing['name']} — {format_amount(ing['amount'], ing['unit'])}"
         for ing in ingredients
     )
 
-    # Split into two messages if too long
     header = (
-        f"🎉 <b>{event['name']}</b>\n\n"
-        f"<b>Количество гостей:</b> {event['guests']}\n\n"
+        f"🎉 <b>{event['name']}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👥 <b>Гостей:</b> {event['guests']}\n"
+        f"🍽️ <b>Блюд:</b> {len(dish_names)}\n\n"
         f"<b>Выбранные блюда:</b>\n{dishes_text}\n\n"
-        f"<b>🛒 Необходимые продукты (с запасом +7%):</b>\n{ing_lines}"
+        f"<b>🛒 Список закупки (+7% запас):</b>\n{ing_lines}"
     )
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 Экспорт в Google Таблицу", callback_data=f"export_{event_id}")],
-        [InlineKeyboardButton("◀️ Назад к архиву", callback_data="archive")],
+        [InlineKeyboardButton("📊  Экспорт в Google Таблицу", callback_data=f"export_{event_id}")],
+        [InlineKeyboardButton("🗑️  Удалить событие", callback_data=f"delete_confirm_{event_id}")],
+        [InlineKeyboardButton("◀️  Назад к архиву", callback_data="archive")],
     ])
 
-    # Telegram message limit is 4096 chars; split if needed
     if len(header) <= 4096:
         await query.edit_message_text(header, parse_mode="HTML", reply_markup=kb)
     else:
         part1 = (
-            f"🎉 <b>{event['name']}</b>\n\n"
-            f"<b>Количество гостей:</b> {event['guests']}\n\n"
+            f"🎉 <b>{event['name']}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👥 <b>Гостей:</b> {event['guests']}\n\n"
             f"<b>Выбранные блюда:</b>\n{dishes_text}"
         )
         await query.edit_message_text(part1, parse_mode="HTML")
-        part2 = f"<b>🛒 Необходимые продукты (с запасом +7%):</b>\n{ing_lines}"
+        part2 = f"<b>🛒 Список закупки (+7% запас):</b>\n{ing_lines}"
         await query.message.reply_text(part2, parse_mode="HTML", reply_markup=kb)
+
+
+# ──────────────────────────────────────────────
+# DELETE EVENT
+# ──────────────────────────────────────────────
+
+async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    event_id = int(query.data.split("_")[2])
+    event = get_event_by_id(event_id)
+    if not event:
+        await query.answer("⚠️ Мероприятие не найдено.", show_alert=True)
+        return
+
+    await query.edit_message_text(
+        f"🗑️ <b>Удалить мероприятие?</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>{event['name']}</b>\n"
+        f"👥 {event['guests']} гостей\n\n"
+        f"⚠️ Событие будет удалено из бота и из Google Таблицы. Это действие нельзя отменить.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🗑️  Да, удалить", callback_data=f"delete_do_{event_id}")],
+            [InlineKeyboardButton("◀️  Отмена", callback_data=f"event_{event_id}")],
+        ]),
+    )
+
+
+async def delete_do(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    event_id = int(query.data.split("_")[2])
+    event = get_event_by_id(event_id)
+    if not event:
+        await query.answer("⚠️ Мероприятие не найдено.", show_alert=True)
+        return
+
+    event_name = event["name"]
+
+    # Удаляем из БД
+    delete_event(event_id)
+
+    # Удаляем лист из Google Таблицы
+    try:
+        delete_sheet_for_event(event_name)
+    except Exception as e:
+        logger.warning(f"Could not delete sheet for event '{event_name}': {e}")
+
+    await query.edit_message_text(
+        f"🗑️ <b>Событие удалено</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"<b>{event_name}</b> удалено из архива и из Google Таблицы.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📂  Архив", callback_data="archive")],
+            [InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")],
+        ]),
+    )
 
 
 # ──────────────────────────────────────────────
@@ -401,7 +490,8 @@ async def export_to_sheets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ingredients=ingredients,
         )
         await query.message.reply_text(
-            f"✅ Готово! Данные экспортированы.\n\n📊 <a href='{url}'>Открыть таблицу</a>",
+            f"✅ <b>Готово!</b>\n\n"
+            f"📊 <a href='{url}'>Открыть Google Таблицу</a>",
             parse_mode="HTML",
             disable_web_page_preview=True,
         )

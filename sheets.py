@@ -153,3 +153,24 @@ def export_event_to_sheets(event_name: str, guests: int, dish_names: list, ingre
     ).execute()
 
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}"
+
+
+def delete_sheet_for_event(event_name: str):
+    """Удаляет лист с данным мероприятием из таблицы."""
+    service = _get_service()
+    sheet = service.spreadsheets()
+
+    # Получаем список всех листов
+    spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
+    sheets = spreadsheet.get("sheets", [])
+
+    # Ищем листы, название которых начинается с имени события
+    for s in sheets:
+        title = s["properties"]["title"]
+        if title.startswith(event_name):
+            sheet_id = s["properties"]["sheetId"]
+            sheet.batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body={"requests": [{"deleteSheet": {"sheetId": sheet_id}}]},
+            ).execute()
+            logger.info(f"Deleted sheet '{title}'")

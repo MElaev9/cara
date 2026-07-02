@@ -1,7 +1,7 @@
 import json
 import logging
 from collections import defaultdict
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
 from database import (
     get_all_dishes,
@@ -55,6 +55,15 @@ async def access_denied(update: Update):
         await update.callback_query.answer(text, show_alert=True)
 
 
+def _bottom_keyboard():
+    """Постоянная клавиатура внизу экрана."""
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("🏠 Главное меню")]],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 def _main_menu_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕  Добавить событие", callback_data="add_event")],
@@ -75,7 +84,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выберите действие:"
     )
     kb = _main_menu_keyboard()
+    bottom = _bottom_keyboard()
     if update.message:
+        await update.message.reply_text(text, reply_markup=bottom, parse_mode="HTML")
         await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
     elif update.callback_query:
         await update.callback_query.answer()
@@ -268,14 +279,31 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = context.user_data["event_name"]
     guests = context.user_data["guests"]
     dish_ids = context.user_data["selected_dishes"]
-    save_event(name, guests, dish_ids)
+    event_id = save_event(name, guests, dish_ids)
     context.user_data.clear()
+
+    # Авто-экспорт в Google Таблицу
+    try:
+        dish_names = []
+        for did in dish_ids:
+            d = get_dish_by_id(did)
+            if d:
+                dish_names.append(d["name"])
+        ingredients = calculate_ingredients(guests, dish_ids)
+        export_event_to_sheets(
+            event_name=name,
+            guests=guests,
+            dish_names=dish_names,
+            ingredients=ingredients,
+        )
+    except Exception as e:
+        logger.warning(f"Auto-export failed: {e}")
 
     await query.edit_message_text(
         f"🎉 <b>Событие сохранено!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"<b>{name}</b> добавлено в архив.\n"
-        f"Откройте его чтобы увидеть список закупки.",
+        f"📊 Данные автоматически экспортированы в Google Таблицу.",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]]
@@ -362,10 +390,22 @@ async def show_event_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ingredients = calculate_ingredients(event["guests"], dish_ids)
 
     dishes_text = "\n".join(f"  • {n}" for n in dish_names)
-    ing_lines = "\n".join(
-        f"  • {ing['name']} — {format_amount(ing['amount'], ing['unit'])}"
-        for ing in ingredients
-    )
+
+    # Группируем ингредиенты по отделам для отображения
+    from collections import defaultdict as _dd
+    from calculator import DEPARTMENT_ORDER
+    by_dept = _dd(list)
+    for ing in ingredients:
+        by_dept[ing["department"]].append(ing)
+
+    ing_lines = ""
+    for dept in DEPARTMENT_ORDER:
+        items = by_dept.get(dept, [])
+        if not items:
+            continue
+        ing_lines += f"\n<b>{dept}</b>\n"
+        for ing in items:
+            ing_lines += f"  • {ing['name']} — {format_amount(ing['amount'], ing['unit'])}\n"
 
     header = (
         f"🎉 <b>{event['name']}</b>\n"
@@ -377,7 +417,6 @@ async def show_event_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊  Экспорт в Google Таблицу", callback_data=f"export_{event_id}")],
         [InlineKeyboardButton("🗑️  Удалить событие", callback_data=f"delete_confirm_{event_id}")],
         [InlineKeyboardButton("◀️  Назад к архиву", callback_data="archive")],
     ])

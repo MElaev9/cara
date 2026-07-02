@@ -487,6 +487,9 @@ async def delete_do(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Удаляем из БД
     delete_event(event_id)
 
+    # Сбрасываем состояние диалога
+    context.user_data.clear()
+
     # Удаляем лист из Google Таблицы
     try:
         delete_sheet_for_event(event_name)

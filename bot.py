@@ -67,7 +67,10 @@ def main() -> None:
         fallbacks=[
             CommandHandler("start", start),
             CallbackQueryHandler(cancel, pattern="^cancel_event$"),
+            CallbackQueryHandler(start, pattern="^main_menu$"),
+            MessageHandler(filters.TEXT & filters.Regex("^📋 Меню$"), start),
         ],
+        allow_reentry=True,
     )
 
     app.add_handler(CommandHandler("start", init_keyboard))

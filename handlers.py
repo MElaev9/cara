@@ -71,6 +71,17 @@ def _main_menu_keyboard():
     ])
 
 
+async def init_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет нижнюю клавиатуру один раз — вызывается только при /start."""
+    if not is_allowed(update):
+        return
+    await update.message.reply_text(
+        "👇",
+        reply_markup=_bottom_keyboard(),
+    )
+    await start(update, context)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         await access_denied(update)
@@ -85,12 +96,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     kb = _main_menu_keyboard()
     if update.message:
-        # Показываем нижнюю кнопку только при команде /start или кнопке «Меню»
-        await update.message.reply_text(
-            text,
-            reply_markup=_bottom_keyboard(),
-            parse_mode="HTML",
-        )
         await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
     elif update.callback_query:
         await update.callback_query.answer()

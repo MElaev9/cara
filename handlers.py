@@ -58,7 +58,7 @@ async def access_denied(update: Update):
 def _bottom_keyboard():
     """Постоянная клавиатура внизу экрана."""
     return ReplyKeyboardMarkup(
-        [[KeyboardButton("🏠 Главное меню")]],
+        [[KeyboardButton("📋 Меню")]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -84,9 +84,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выберите действие:"
     )
     kb = _main_menu_keyboard()
-    bottom = _bottom_keyboard()
     if update.message:
-        await update.message.reply_text(text, reply_markup=bottom, parse_mode="HTML")
+        # Показываем нижнюю кнопку только при команде /start или кнопке «Меню»
+        await update.message.reply_text(
+            text,
+            reply_markup=_bottom_keyboard(),
+            parse_mode="HTML",
+        )
         await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
     elif update.callback_query:
         await update.callback_query.answer()

@@ -70,7 +70,7 @@ def main() -> None:
     )
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^🏠 Главное меню$"), start))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^📋 Меню$"), start))
     app.add_handler(conv_handler)
     app.add_handler(CallbackQueryHandler(show_archive, pattern="^archive$"))
     app.add_handler(CallbackQueryHandler(show_event_card, pattern="^event_\\d+$"))

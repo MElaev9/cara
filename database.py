@@ -64,6 +64,7 @@ def init_db():
                 name TEXT NOT NULL,
                 guests INTEGER NOT NULL,
                 dish_ids TEXT NOT NULL,
+                event_date TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
         """)
@@ -92,13 +93,34 @@ def init_db():
                 name TEXT NOT NULL,
                 guests INTEGER NOT NULL,
                 dish_ids TEXT NOT NULL,
+                event_date TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             )
         """)
 
     conn.commit()
     conn.close()
+    _migrate()
     _seed_dishes()
+
+
+def _migrate():
+    """Добавляет новые колонки если их нет."""
+    conn = get_conn()
+    c = conn.cursor()
+    try:
+        if DATABASE_URL:
+            c.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT NOT NULL DEFAULT ''")
+        else:
+            c.execute("PRAGMA table_info(events)")
+            cols = [row[1] for row in c.fetchall()]
+            if "event_date" not in cols:
+                c.execute("ALTER TABLE events ADD COLUMN event_date TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"Migration: {e}")
+    finally:
+        conn.close()
 
 
 def _seed_dishes():
@@ -269,19 +291,19 @@ def get_ingredients_for_dish(dish_id):
     return [_row_to_dict(r) for r in rows]
 
 
-def save_event(name, guests, dish_ids):
+def save_event(name, guests, dish_ids, event_date=""):
     conn = get_conn()
     c = conn.cursor()
     if DATABASE_URL:
         c.execute(
-            f"INSERT INTO events (name, guests, dish_ids, created_at) VALUES ({_ph(4)}) RETURNING id",
-            (name, guests, json.dumps(dish_ids), datetime.now().isoformat()),
+            f"INSERT INTO events (name, guests, dish_ids, event_date, created_at) VALUES ({_ph(5)}) RETURNING id",
+            (name, guests, json.dumps(dish_ids), event_date, datetime.now().isoformat()),
         )
         event_id = c.fetchone()[0]
     else:
         c.execute(
-            f"INSERT INTO events (name, guests, dish_ids, created_at) VALUES ({_ph(4)})",
-            (name, guests, json.dumps(dish_ids), datetime.now().isoformat()),
+            f"INSERT INTO events (name, guests, dish_ids, event_date, created_at) VALUES ({_ph(5)})",
+            (name, guests, json.dumps(dish_ids), event_date, datetime.now().isoformat()),
         )
         event_id = c.lastrowid
     conn.commit()

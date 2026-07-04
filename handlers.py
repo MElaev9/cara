@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 WAITING_NAME = 1
 WAITING_GUESTS = 2
+WAITING_DATE = 5
 CHOOSING_DISHES = 3
 CONFIRMING = 4
 
@@ -147,6 +148,24 @@ async def receive_guests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ Введите положительное целое число. Например: 120")
         return WAITING_GUESTS
     context.user_data["guests"] = int(text)
+    await update.message.reply_text(
+        f"📝 <b>Новое мероприятие</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"Шаг 3 из 4\n\n"
+        f"✅ Гостей: <b>{text}</b>\n\n"
+        f"Введите <b>дату проведения</b> мероприятия:\n\n"
+        f"<i>Например: 15.08.2025 или 25 декабря</i>",
+        parse_mode="HTML",
+    )
+    return WAITING_DATE
+
+
+async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    date = update.message.text.strip()
+    if not date:
+        await update.message.reply_text("❗ Введите дату. Например: 15.08.2025")
+        return WAITING_DATE
+    context.user_data["event_date"] = date
     context.user_data["selected_dishes"] = []
     await _send_dish_catalog(update.message, context)
     return CHOOSING_DISHES
@@ -186,7 +205,7 @@ async def _send_dish_catalog(target, context: ContextTypes.DEFAULT_TYPE, edit=Fa
     text = (
         f"🍽️ <b>Выберите блюда</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Шаг 3 из 3\n\n"
+        f"Шаг 4 из 4\n\n"
         f"Выбрано блюд: <b>{count}</b>\n\n"
         f"🟢 — выбрано  |  нажмите снова — отмена\n"
         f"Нажмите на категорию — узнайте норму подачи."
@@ -239,6 +258,7 @@ async def save_dishes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _show_confirmation(target, context, edit=False):
     name = context.user_data["event_name"]
     guests = context.user_data["guests"]
+    event_date = context.user_data.get("event_date", "—")
     selected_ids = context.user_data["selected_dishes"]
 
     dish_names = []
@@ -252,6 +272,7 @@ async def _show_confirmation(target, context, edit=False):
         f"📋 <b>Проверьте данные</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"🎉 <b>Мероприятие:</b> {name}\n"
+        f"📅 <b>Дата:</b> {event_date}\n"
         f"👥 <b>Гостей:</b> {guests}\n\n"
         f"🍽️ <b>Выбранные блюда ({len(dish_names)}):</b>\n{dishes_text}"
     )
@@ -287,8 +308,9 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     name = context.user_data["event_name"]
     guests = context.user_data["guests"]
+    event_date = context.user_data.get("event_date", "")
     dish_ids = context.user_data["selected_dishes"]
-    event_id = save_event(name, guests, dish_ids)
+    event_id = save_event(name, guests, dish_ids, event_date)
     context.user_data.clear()
 
     # Авто-экспорт в Google Таблицу
@@ -304,6 +326,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             guests=guests,
             dish_names=dish_names,
             ingredients=ingredients,
+            event_date=event_date,
         )
     except Exception as e:
         logger.warning(f"Auto-export failed: {e}")

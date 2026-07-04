@@ -98,13 +98,16 @@ def _add_to_index(service, event_name: str, guests: int, dish_count: int,
     ).execute()
     next_row = len(result.get("values", [])) + 1
 
+    # Экранируем кавычки в названии для формулы
+    safe_name = event_name.replace('"', '""')
+
     # Добавляем строку с формулой-ссылкой
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{INDEX_SHEET_NAME}'!A{next_row}:D{next_row}",
         valueInputOption="USER_ENTERED",
         body={"values": [[
-            f'=HYPERLINK("{sheet_url}","{event_name}")',
+            f'=HYPERLINK("{sheet_url}","{safe_name}")',
             guests,
             date_str,
             dish_count,
@@ -113,7 +116,8 @@ def _add_to_index(service, event_name: str, guests: int, dish_count: int,
 
 
 def export_event_to_sheets(event_name: str, guests: int,
-                           dish_names: list, ingredients: list) -> str:
+                           dish_names: list, ingredients: list,
+                           event_date: str = "") -> str:
     service = _get_service()
     sheet = service.spreadsheets()
 
@@ -133,7 +137,8 @@ def export_event_to_sheets(event_name: str, guests: int,
     # Шапка
     rows.append([f"🎉 {event_name}"])
     rows.append([f"👥 Гостей: {guests}"])
-    rows.append([f"📅 Дата: {date_str}"])
+    rows.append([f"📅 Дата проведения: {event_date}" if event_date else f"📅 Дата создания: {date_str}"])
+    rows.append([f"🗓️ Создано: {date_str}"])
     rows.append([])
 
     # Выбранные блюда
@@ -256,7 +261,8 @@ def export_event_to_sheets(event_name: str, guests: int,
     sheet.batchUpdate(spreadsheetId=SPREADSHEET_ID, body={"requests": requests}).execute()
 
     # Добавляем в главный лист
-    _add_to_index(service, event_name, guests, len(dish_names), date_str, sheet_title)
+    _add_to_index(service, event_name, guests, len(dish_names),
+                  event_date if event_date else date_str, sheet_title)
 
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={sheet_id}"
 
@@ -269,6 +275,7 @@ def delete_sheet_for_event(event_name: str):
     spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
     sheets = spreadsheet.get("sheets", [])
 
+    deleted = False
     for s in sheets:
         title = s["properties"]["title"]
         if title.startswith(event_name):
@@ -278,42 +285,59 @@ def delete_sheet_for_event(event_name: str):
                 body={"requests": [{"deleteSheet": {"sheetId": sheet_id}}]},
             ).execute()
             logger.info(f"Deleted sheet '{title}'")
-
-            # Удаляем строку из главного листа
-            _remove_from_index(service, event_name)
+            deleted = True
             break
+
+    # Всегда пытаемся удалить из индекса
+    _remove_from_index(service, event_name)
 
 
 def _remove_from_index(service, event_name: str):
     """Удаляет строку с мероприятием из главного листа."""
     sheet = service.spreadsheets()
     try:
+        # Читаем с FORMULA чтобы видеть содержимое HYPERLINK ячеек
         result = sheet.values().get(
             spreadsheetId=SPREADSHEET_ID,
             range=f"'{INDEX_SHEET_NAME}'!A:A",
+            valueRenderOption="FORMULA",
         ).execute()
         values = result.get("values", [])
+
+        row_index = None
         for i, row in enumerate(values):
-            if row and event_name in str(row[0]):
-                # Получаем sheetId главного листа
-                spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
-                index_id = None
-                for s in spreadsheet.get("sheets", []):
-                    if s["properties"]["title"] == INDEX_SHEET_NAME:
-                        index_id = s["properties"]["sheetId"]
-                        break
-                if index_id is not None:
-                    sheet.batchUpdate(
-                        spreadsheetId=SPREADSHEET_ID,
-                        body={"requests": [{"deleteDimension": {
-                            "range": {
-                                "sheetId": index_id,
-                                "dimension": "ROWS",
-                                "startIndex": i,
-                                "endIndex": i + 1,
-                            }
-                        }}]},
-                    ).execute()
+            if not row:
+                continue
+            cell = str(row[0])
+            # Ячейка может быть формулой =HYPERLINK("...","Название") или просто текстом
+            if f'"{event_name}"' in cell or cell == event_name:
+                row_index = i
                 break
+
+        if row_index is None:
+            logger.warning(f"Event '{event_name}' not found in index sheet")
+            return
+
+        # Получаем sheetId главного листа
+        spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
+        index_id = None
+        for s in spreadsheet.get("sheets", []):
+            if s["properties"]["title"] == INDEX_SHEET_NAME:
+                index_id = s["properties"]["sheetId"]
+                break
+
+        if index_id is not None:
+            sheet.batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body={"requests": [{"deleteDimension": {
+                    "range": {
+                        "sheetId": index_id,
+                        "dimension": "ROWS",
+                        "startIndex": row_index,
+                        "endIndex": row_index + 1,
+                    }
+                }}]},
+            ).execute()
+            logger.info(f"Removed '{event_name}' from index sheet")
     except Exception as e:
         logger.warning(f"Could not remove from index: {e}")

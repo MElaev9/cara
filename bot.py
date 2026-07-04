@@ -18,6 +18,7 @@ from handlers import (
     add_event_start,
     receive_name,
     receive_guests,
+    receive_date,
     handle_dish_toggle,
     handle_category_info,
     save_dishes,
@@ -30,6 +31,7 @@ from handlers import (
     cancel,
     WAITING_NAME,
     WAITING_GUESTS,
+    WAITING_DATE,
     CHOOSING_DISHES,
     CONFIRMING,
 )
@@ -55,6 +57,7 @@ def main() -> None:
         states={
             WAITING_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
             WAITING_GUESTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_guests)],
+            WAITING_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_date)],
             CHOOSING_DISHES: [
                 CallbackQueryHandler(handle_dish_toggle, pattern="^dish_"),
                 CallbackQueryHandler(save_dishes, pattern="^save_dishes$"),

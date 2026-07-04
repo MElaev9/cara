@@ -100,14 +100,15 @@ def _add_to_index(service, event_name: str, guests: int, dish_count: int,
 
     # Экранируем кавычки в названии для формулы
     safe_name = event_name.replace('"', '""')
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit?gid={target_gid}#gid={target_gid}&range=A1"
 
-    # Добавляем строку с формулой-ссылкой
+    # Добавляем строку с формулой-ссылкой (русский синтаксис с точкой с запятой)
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{INDEX_SHEET_NAME}'!A{next_row}:D{next_row}",
         valueInputOption="USER_ENTERED",
         body={"values": [[
-            f'=HYPERLINK("{sheet_url}","{safe_name}")',
+            f'=ГИПЕРССЫЛКА("{sheet_url}";"{safe_name}")',
             guests,
             date_str,
             dish_count,

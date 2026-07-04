@@ -116,7 +116,7 @@ async def add_event_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.edit_message_text(
         "📝 <b>Новое мероприятие</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "Шаг 1 из 3\n\n"
+        "Шаг 1 из 4\n\n"
         "Введите <b>название</b> мероприятия:\n\n"
         "<i>Например: Свадьба Ивановых, Корпоратив, Юбилей</i>",
         parse_mode="HTML",
@@ -133,7 +133,7 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📝 <b>Новое мероприятие</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"Шаг 2 из 3\n\n"
+        f"Шаг 2 из 4\n\n"
         f"✅ Название: <b>{name}</b>\n\n"
         f"Введите <b>количество гостей</b>:\n\n"
         f"<i>Например: 50, 120, 200</i>",

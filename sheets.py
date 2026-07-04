@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from collections import defaultdict
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -15,6 +16,14 @@ SCOPES = [
 ]
 INDEX_SHEET_NAME = "📋 Все события"
 
+# Цвета
+COLOR_DARK   = {"red": 0.13, "green": 0.13, "blue": 0.13}   # почти чёрный — заголовок
+COLOR_BLUE   = {"red": 0.27, "green": 0.51, "blue": 0.71}   # синий — шапки таблиц
+COLOR_GREEN  = {"red": 0.42, "green": 0.66, "blue": 0.31}   # зелёный — отдел
+COLOR_LIGHT  = {"red": 0.95, "green": 0.95, "blue": 0.95}   # светло-серый — чередование строк
+COLOR_WHITE  = {"red": 1.0,  "green": 1.0,  "blue": 1.0}
+COLOR_TEXT_W = {"red": 1.0,  "green": 1.0,  "blue": 1.0}    # белый текст
+
 
 def _get_service():
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
@@ -25,27 +34,23 @@ def _get_service():
     return build("sheets", "v4", credentials=creds)
 
 
+# ── Главный лист ──────────────────────────────────────────────────────────────
+
 def _get_or_create_index_sheet(service) -> int:
-    """Получает или создаёт главный лист со списком событий."""
     sheet = service.spreadsheets()
     spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
-    sheets = spreadsheet.get("sheets", [])
-
-    for s in sheets:
+    for s in spreadsheet.get("sheets", []):
         if s["properties"]["title"] == INDEX_SHEET_NAME:
             return s["properties"]["sheetId"]
 
-    # Создаём главный лист
     resp = sheet.batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
         body={"requests": [{"addSheet": {"properties": {
-            "title": INDEX_SHEET_NAME,
-            "index": 0,
+            "title": INDEX_SHEET_NAME, "index": 0,
         }}}]}
     ).execute()
     sheet_id = resp["replies"][0]["addSheet"]["properties"]["sheetId"]
 
-    # Заголовок главного листа
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{INDEX_SHEET_NAME}'!A1:D1",
@@ -53,14 +58,12 @@ def _get_or_create_index_sheet(service) -> int:
         body={"values": [["Мероприятие", "Гостей", "Дата", "Блюд"]]},
     ).execute()
 
-    # Форматируем заголовок
     sheet.batchUpdate(spreadsheetId=SPREADSHEET_ID, body={"requests": [
         {"repeatCell": {
             "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
             "cell": {"userEnteredFormat": {
-                "backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
-                "textFormat": {"bold": True, "fontSize": 12,
-                               "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
+                "backgroundColor": COLOR_DARK,
+                "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": COLOR_TEXT_W},
                 "horizontalAlignment": "CENTER",
             }},
             "fields": "userEnteredFormat",
@@ -70,17 +73,13 @@ def _get_or_create_index_sheet(service) -> int:
             "startIndex": 0, "endIndex": 4,
         }}},
     ]}).execute()
-
     return sheet_id
 
 
-def _add_to_index(service, event_name: str, guests: int, dish_count: int,
-                  date_str: str, target_sheet_title: str):
-    """Добавляет строку в главный лист со ссылкой на лист события."""
+def _add_to_index(service, event_name, guests, dish_count, date_str, target_sheet_title):
     sheet = service.spreadsheets()
     _get_or_create_index_sheet(service)
 
-    # Получаем ID листа события для ссылки
     spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
     target_gid = None
     for s in spreadsheet.get("sheets", []):
@@ -88,33 +87,28 @@ def _add_to_index(service, event_name: str, guests: int, dish_count: int,
             target_gid = s["properties"]["sheetId"]
             break
 
-    # Ссылка на лист события
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={target_gid}"
-
-    # Находим первую пустую строку
     result = sheet.values().get(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{INDEX_SHEET_NAME}'!A:A",
     ).execute()
     next_row = len(result.get("values", [])) + 1
 
-    # Экранируем кавычки в названии для формулы
     safe_name = event_name.replace('"', '""')
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit?gid={target_gid}#gid={target_gid}&range=A1"
+    sheet_url = (f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}"
+                 f"/edit?gid={target_gid}#gid={target_gid}&range=A1")
 
-    # Добавляем строку с формулой-ссылкой (русский синтаксис с точкой с запятой)
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{INDEX_SHEET_NAME}'!A{next_row}:D{next_row}",
         valueInputOption="USER_ENTERED",
         body={"values": [[
             f'=ГИПЕРССЫЛКА("{sheet_url}";"{safe_name}")',
-            guests,
-            date_str,
-            dish_count,
+            guests, date_str, dish_count,
         ]]},
     ).execute()
 
+
+# ── Основной экспорт ──────────────────────────────────────────────────────────
 
 def export_event_to_sheets(event_name: str, guests: int,
                            dish_names: list, ingredients: list,
@@ -125,139 +119,214 @@ def export_event_to_sheets(event_name: str, guests: int,
     date_str = datetime.now().strftime("%d.%m.%Y")
     sheet_title = f"{event_name} {date_str}"[:100]
 
-    # Создаём лист события
     resp = sheet.batchUpdate(
         spreadsheetId=SPREADSHEET_ID,
         body={"requests": [{"addSheet": {"properties": {"title": sheet_title}}}]}
     ).execute()
     sheet_id = resp["replies"][0]["addSheet"]["properties"]["sheetId"]
 
-    # ── Формируем данные ──────────────────────────────────────────────────
-    rows = []
-
-    # Шапка
-    rows.append([f"🎉 {event_name}"])
-    rows.append([f"👥 Гостей: {guests}"])
-    rows.append([f"📅 Дата проведения: {event_date}" if event_date else f"📅 Дата создания: {date_str}"])
-    rows.append([f"🗓️ Создано: {date_str}"])
-    rows.append([])
-
-    # Выбранные блюда
-    rows.append(["🍽️ ВЫБРАННЫЕ БЛЮДА"])
-    rows.append(["№", "Блюдо"])
-    for i, name in enumerate(dish_names, 1):
-        rows.append([i, name])
-    rows.append([])
-
-    # Закупка по отделам
-    rows.append(["🛒 СПИСОК ЗАКУПКИ (+7% запас)"])
-    rows.append(["Отдел", "Продукт", "Количество", "Ед. изм."])
-
-    # Группируем по отделам
-    from collections import defaultdict as dd
-    by_dept = dd(list)
+    # ── Группируем ингредиенты по отделам ────────────────────────────────────
+    by_dept = defaultdict(list)
     for ing in ingredients:
         by_dept[ing["department"]].append(ing)
 
+    # ── Строим данные двух колонок ────────────────────────────────────────────
+    # Левая часть (A:B): название, гости, дата, меню
+    left = []
+    left.append([f"🎉 {event_name}", ""])
+    left.append(["👥 Гостей:", guests])
+    left.append(["📅 Дата:", event_date if event_date else date_str])
+    left.append(["🗓️ Создано:", date_str])
+    left.append(["", ""])
+    left.append(["🍽️ МЕНЮ", ""])
+    left.append(["№", "Блюдо"])
+    for i, name in enumerate(dish_names, 1):
+        left.append([i, name])
+
+    # Правая часть (D:G): список закупки
+    right_start_row = 1  # строка начала (1-based)
+    right = []
+    right.append(["🛒 СПИСОК ЗАКУПКИ (+7% запас)", "", "", ""])
+    right.append(["Отдел", "Продукт", "Количество", "Ед. изм."])
+
+    dept_rows = []  # запоминаем строки отделов для форматирования
     for dept in DEPARTMENT_ORDER:
         items = by_dept.get(dept, [])
         if not items:
             continue
         first = True
+        dept_start = len(right) + right_start_row  # 1-based row
         for ing in items:
-            dept_label = dept if first else ""
             amount = ing["amount"]
             unit = ing["unit"]
-            if unit == "шт":
-                amount_str = str(int(amount))
-            else:
-                amount_str = f"{float(amount):.3f}".rstrip("0").rstrip(".")
-            rows.append([dept_label, ing["name"], amount_str, unit])
+            amount_str = str(int(amount)) if unit == "шт" else f"{float(amount):.3f}".rstrip("0").rstrip(".")
+            right.append([dept if first else "", ing["name"], amount_str, unit])
             first = False
-        rows.append(["", "", "", ""])  # пустая строка между отделами
+        dept_rows.append((dept_start, dept_start + len(items) - 1))
+        right.append(["", "", "", ""])
 
-    # ── Записываем данные ─────────────────────────────────────────────────
+    # ── Записываем данные ─────────────────────────────────────────────────────
+    # Левая колонка A:B
     sheet.values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"'{sheet_title}'!A1",
         valueInputOption="RAW",
-        body={"values": rows},
+        body={"values": left},
     ).execute()
 
-    # ── Форматирование ────────────────────────────────────────────────────
-    header_row = 4 + len(dish_names) + 2  # строка "🛒 СПИСОК ЗАКУПКИ"
-    col_header_row = header_row + 1        # строка "Отдел | Продукт | ..."
+    # Правая колонка D:G (смещение на 3 колонки)
+    sheet.values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{sheet_title}'!D1",
+        valueInputOption="RAW",
+        body={"values": right},
+    ).execute()
+
+    # ── Форматирование ────────────────────────────────────────────────────────
+    menu_header_row = 5   # строка "🍽️ МЕНЮ" (0-based = 5)
+    menu_col_row = 6      # строка "№ Блюдо" (0-based = 6)
+    buy_header_row = 0    # строка "🛒 СПИСОК ЗАКУПКИ" в правой части (0-based = 0)
+    buy_col_row = 1       # строка "Отдел Продукт..." (0-based = 1)
 
     requests = [
-        # Заголовок мероприятия — большой жирный
+        # Ширина колонок
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1},
+            "properties": {"pixelSize": 160}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2},
+            "properties": {"pixelSize": 180}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 2, "endIndex": 3},
+            "properties": {"pixelSize": 20}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 3, "endIndex": 4},
+            "properties": {"pixelSize": 160}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 4, "endIndex": 5},
+            "properties": {"pixelSize": 180}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 5, "endIndex": 6},
+            "properties": {"pixelSize": 90}, "fields": "pixelSize",
+        }},
+        {"updateDimensionProperties": {
+            "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 7},
+            "properties": {"pixelSize": 70}, "fields": "pixelSize",
+        }},
+
+        # Заголовок мероприятия (A1)
         {"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1},
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": 2},
             "cell": {"userEnteredFormat": {
-                "textFormat": {"bold": True, "fontSize": 16},
-                "backgroundColor": {"red": 0.95, "green": 0.95, "blue": 0.95},
+                "backgroundColor": COLOR_DARK,
+                "textFormat": {"bold": True, "fontSize": 14, "foregroundColor": COLOR_TEXT_W},
             }},
             "fields": "userEnteredFormat",
         }},
-        # Строки гостей и даты
+        # Merge заголовка A1:B1
+        {"mergeCells": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": 2},
+            "mergeType": "MERGE_ALL",
+        }},
+
+        # Строки гостей/даты — жирная левая колонка
         {"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 3},
+            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 5,
+                      "startColumnIndex": 0, "endColumnIndex": 1},
             "cell": {"userEnteredFormat": {
-                "textFormat": {"fontSize": 11},
+                "textFormat": {"bold": True},
             }},
             "fields": "userEnteredFormat.textFormat",
         }},
-        # Заголовок блюд
+
+        # Заголовок МЕНЮ (A6)
         {"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 4, "endRowIndex": 5},
+            "range": {"sheetId": sheet_id, "startRowIndex": menu_header_row,
+                      "endRowIndex": menu_header_row + 1,
+                      "startColumnIndex": 0, "endColumnIndex": 2},
             "cell": {"userEnteredFormat": {
-                "textFormat": {"bold": True, "fontSize": 12},
-                "backgroundColor": {"red": 0.9, "green": 0.95, "blue": 1.0},
+                "backgroundColor": COLOR_BLUE,
+                "textFormat": {"bold": True, "fontSize": 11, "foregroundColor": COLOR_TEXT_W},
             }},
             "fields": "userEnteredFormat",
         }},
-        # Шапка таблицы блюд
+        {"mergeCells": {
+            "range": {"sheetId": sheet_id, "startRowIndex": menu_header_row,
+                      "endRowIndex": menu_header_row + 1,
+                      "startColumnIndex": 0, "endColumnIndex": 2},
+            "mergeType": "MERGE_ALL",
+        }},
+
+        # Шапка таблицы меню (№ Блюдо)
         {"repeatCell": {
-            "range": {"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": 6},
+            "range": {"sheetId": sheet_id, "startRowIndex": menu_col_row,
+                      "endRowIndex": menu_col_row + 1,
+                      "startColumnIndex": 0, "endColumnIndex": 2},
             "cell": {"userEnteredFormat": {
+                "backgroundColor": COLOR_LIGHT,
                 "textFormat": {"bold": True},
-                "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
             }},
             "fields": "userEnteredFormat",
         }},
-        # Заголовок закупки
+
+        # Заголовок СПИСОК ЗАКУПКИ (D1)
         {"repeatCell": {
-            "range": {"sheetId": sheet_id,
-                      "startRowIndex": header_row - 1, "endRowIndex": header_row},
+            "range": {"sheetId": sheet_id, "startRowIndex": buy_header_row,
+                      "endRowIndex": buy_header_row + 1,
+                      "startColumnIndex": 3, "endColumnIndex": 7},
             "cell": {"userEnteredFormat": {
-                "textFormat": {"bold": True, "fontSize": 12},
-                "backgroundColor": {"red": 0.9, "green": 1.0, "blue": 0.9},
+                "backgroundColor": COLOR_DARK,
+                "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": COLOR_TEXT_W},
+                "horizontalAlignment": "CENTER",
             }},
             "fields": "userEnteredFormat",
         }},
-        # Шапка таблицы закупки
+        {"mergeCells": {
+            "range": {"sheetId": sheet_id, "startRowIndex": buy_header_row,
+                      "endRowIndex": buy_header_row + 1,
+                      "startColumnIndex": 3, "endColumnIndex": 7},
+            "mergeType": "MERGE_ALL",
+        }},
+
+        # Шапка таблицы закупки (Отдел Продукт...)
         {"repeatCell": {
-            "range": {"sheetId": sheet_id,
-                      "startRowIndex": col_header_row - 1, "endRowIndex": col_header_row},
+            "range": {"sheetId": sheet_id, "startRowIndex": buy_col_row,
+                      "endRowIndex": buy_col_row + 1,
+                      "startColumnIndex": 3, "endColumnIndex": 7},
             "cell": {"userEnteredFormat": {
-                "textFormat": {"bold": True},
-                "backgroundColor": {"red": 0.85, "green": 0.85, "blue": 0.85},
+                "backgroundColor": COLOR_BLUE,
+                "textFormat": {"bold": True, "foregroundColor": COLOR_TEXT_W},
+                "horizontalAlignment": "CENTER",
             }},
             "fields": "userEnteredFormat",
         }},
-        # Авторазмер всех колонок
-        {"autoResizeDimensions": {"dimensions": {
-            "sheetId": sheet_id, "dimension": "COLUMNS",
-            "startIndex": 0, "endIndex": 4,
-        }}},
+
         # Заморозить первую строку
         {"updateSheetProperties": {
-            "properties": {
-                "sheetId": sheet_id,
-                "gridProperties": {"frozenRowCount": 1},
-            },
+            "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
             "fields": "gridProperties.frozenRowCount",
         }},
     ]
+
+    # Форматирование отделов (зелёный фон для названия отдела)
+    for dept_start, dept_end in dept_rows:
+        r = dept_start + 1  # +1 для шапки, 0-based
+        requests.append({"repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": r, "endRowIndex": r + 1,
+                      "startColumnIndex": 3, "endColumnIndex": 4},
+            "cell": {"userEnteredFormat": {
+                "backgroundColor": COLOR_GREEN,
+                "textFormat": {"bold": True, "foregroundColor": COLOR_TEXT_W},
+            }},
+            "fields": "userEnteredFormat",
+        }})
 
     sheet.batchUpdate(spreadsheetId=SPREADSHEET_ID, body={"requests": requests}).execute()
 
@@ -265,19 +334,18 @@ def export_event_to_sheets(event_name: str, guests: int,
     _add_to_index(service, event_name, guests, len(dish_names),
                   event_date if event_date else date_str, sheet_title)
 
-    return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={sheet_id}"
+    return (f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}"
+            f"/edit?gid={sheet_id}#gid={sheet_id}")
 
+
+# ── Удаление ──────────────────────────────────────────────────────────────────
 
 def delete_sheet_for_event(event_name: str):
-    """Удаляет лист события и строку из главного листа."""
     service = _get_service()
     sheet = service.spreadsheets()
 
     spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
-    sheets = spreadsheet.get("sheets", [])
-
-    deleted = False
-    for s in sheets:
+    for s in spreadsheet.get("sheets", []):
         title = s["properties"]["title"]
         if title.startswith(event_name):
             sheet_id = s["properties"]["sheetId"]
@@ -286,18 +354,14 @@ def delete_sheet_for_event(event_name: str):
                 body={"requests": [{"deleteSheet": {"sheetId": sheet_id}}]},
             ).execute()
             logger.info(f"Deleted sheet '{title}'")
-            deleted = True
             break
 
-    # Всегда пытаемся удалить из индекса
     _remove_from_index(service, event_name)
 
 
 def _remove_from_index(service, event_name: str):
-    """Удаляет строку с мероприятием из главного листа."""
     sheet = service.spreadsheets()
     try:
-        # Читаем с FORMULA чтобы видеть содержимое HYPERLINK ячеек
         result = sheet.values().get(
             spreadsheetId=SPREADSHEET_ID,
             range=f"'{INDEX_SHEET_NAME}'!A:A",
@@ -310,16 +374,14 @@ def _remove_from_index(service, event_name: str):
             if not row:
                 continue
             cell = str(row[0])
-            # Ячейка может быть формулой =HYPERLINK("...","Название") или просто текстом
             if f'"{event_name}"' in cell or cell == event_name:
                 row_index = i
                 break
 
         if row_index is None:
-            logger.warning(f"Event '{event_name}' not found in index sheet")
+            logger.warning(f"'{event_name}' not found in index")
             return
 
-        # Получаем sheetId главного листа
         spreadsheet = sheet.get(spreadsheetId=SPREADSHEET_ID).execute()
         index_id = None
         for s in spreadsheet.get("sheets", []):
@@ -331,14 +393,9 @@ def _remove_from_index(service, event_name: str):
             sheet.batchUpdate(
                 spreadsheetId=SPREADSHEET_ID,
                 body={"requests": [{"deleteDimension": {
-                    "range": {
-                        "sheetId": index_id,
-                        "dimension": "ROWS",
-                        "startIndex": row_index,
-                        "endIndex": row_index + 1,
-                    }
+                    "range": {"sheetId": index_id, "dimension": "ROWS",
+                              "startIndex": row_index, "endIndex": row_index + 1}
                 }}]},
             ).execute()
-            logger.info(f"Removed '{event_name}' from index sheet")
     except Exception as e:
         logger.warning(f"Could not remove from index: {e}")

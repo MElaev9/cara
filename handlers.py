@@ -1,7 +1,15 @@
 import json
 import logging
+import os
 from collections import defaultdict
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    WebAppInfo,
+)
 from telegram.ext import ContextTypes, ConversationHandler
 from database import (
     get_all_dishes,
@@ -66,10 +74,14 @@ def _bottom_keyboard():
 
 
 def _main_menu_keyboard():
-    return InlineKeyboardMarkup([
+    rows = [
         [InlineKeyboardButton("➕  Добавить событие", callback_data="add_event")],
         [InlineKeyboardButton("📂  Архив событий", callback_data="archive")],
-    ])
+    ]
+    miniapp_url = os.environ.get("MINIAPP_URL")
+    if miniapp_url:
+        rows.append([InlineKeyboardButton("🧾  Открыть Mini App", web_app=WebAppInfo(url=miniapp_url))])
+    return InlineKeyboardMarkup(rows)
 
 
 async def init_keyboard(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -16,9 +16,12 @@ ALLOWED_USERS = {470659949, 5934943041}
 
 MENU_BUTTON_TEXT = "📋 Вызов панели"
 
-# Кастомные (премиум) эмодзи можно вставить только в текст сообщения через
-# HTML-тег <tg-emoji>, Telegram Bot API не поддерживает их в тексте кнопок.
-PANEL_EMOJI_ID = "5983399041197675256"
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
+
+# icon_custom_emoji_id на кнопках работает только если у владельца бота есть
+# активная подписка Telegram Premium (или куплены доп. юзернеймы на Fragment).
+MENU_BUTTON_EMOJI_ID = "5983399041197675256"
+PANEL_BUTTON_EMOJI_ID = "5778311685638984859"
 
 
 def is_allowed(update: Update) -> bool:
@@ -36,7 +39,11 @@ async def access_denied(update: Update):
 
 def _bottom_keyboard():
     return ReplyKeyboardMarkup(
-        [[KeyboardButton(MENU_BUTTON_TEXT)]],
+        [[KeyboardButton(
+            MENU_BUTTON_TEXT,
+            style="primary",
+            icon_custom_emoji_id=MENU_BUTTON_EMOJI_ID,
+        )]],
         resize_keyboard=True,
         is_persistent=True,
     )
@@ -63,13 +70,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    text = (
-        f'<tg-emoji emoji-id="{PANEL_EMOJI_ID}">📋</tg-emoji> <b>Караван</b>\n'
+    caption = (
+        "<b>Караван</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n\n"
         "Расчёт продуктов для банкетов и мероприятий.\n\n"
         "Нажмите кнопку ниже, чтобы открыть панель:"
     )
-    kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("Открыть панель", web_app=WebAppInfo(url=miniapp_url))]]
-    )
-    await update.message.reply_text(text, reply_markup=kb, parse_mode="HTML")
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            "Открыть панель",
+            web_app=WebAppInfo(url=miniapp_url),
+            style="primary",
+            icon_custom_emoji_id=PANEL_BUTTON_EMOJI_ID,
+        )
+    ]])
+    with open(LOGO_PATH, "rb") as logo:
+        await update.message.reply_photo(
+            photo=logo, caption=caption, parse_mode="HTML", reply_markup=kb
+        )

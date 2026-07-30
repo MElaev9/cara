@@ -5,9 +5,4 @@ services:
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
-      - DB_PATH=/data/karavan.db
-    volumes:
-      - karavan_data:/data
-
-volumes:
-  karavan_data:
+      - MINIAPP_URL=${MINIAPP_URL}

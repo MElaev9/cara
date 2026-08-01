@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_USERS = {470659949, 5934943041}
 
-MENU_BUTTON_TEXT = "📋 Вызов панели"
+MENU_BUTTON_TEXT = "Вызов панели"
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
 
